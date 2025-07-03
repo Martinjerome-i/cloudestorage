@@ -1,0 +1,456 @@
+{% extends 'base.html' %}
+
+{% block title %}Folders - Cloud Storage{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Folders</h2>
+    <div>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createFolderModal">
+            <i class="fas fa-plus"></i> Create Folder
+        </button>
+        {% if user.is_superuser %}
+        <button class="btn btn-secondary" onclick="showDeletedFolders()">
+            <i class="fas fa-trash"></i> View Deleted
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Search and Filter -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="input-group">
+            <input type="text" class="form-control" id="searchFolders" placeholder="Search folders...">
+            <button class="btn btn-outline-secondary" type="button" onclick="searchFolders()">
+                <i class="fas fa-search"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Folders Grid -->
+<div class="row" id="foldersContainer">
+    {% if folders %}
+        {% for folder in folders %}
+        <div class="col-md-6 col-lg-4 mb-4 folder-item" data-folder-name="{{ folder.name|lower }}">
+            <div class="card folder-card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <h5 class="card-title">
+                                <i class="fas fa-folder text-warning"></i>
+                                {{ folder.name }}
+                            </h5>
+                            <p class="card-text text-muted">{{ folder.description|default:"No description" }}</p>
+                        </div>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="{% url 'folder_images' folder.id %}">
+                                    <i class="fas fa-images"></i> View Images
+                                </a></li>
+                                <li><a class="dropdown-item" href="#" 
+                                       data-folder-id="{{ folder.id }}" 
+                                       data-folder-name="{{ folder.name|escapejs }}" 
+                                       data-folder-description="{{ folder.description|escapejs }}"
+                                       onclick="editFolder(this.dataset.folderId, this.dataset.folderName, this.dataset.folderDescription)">
+                                    <i class="fas fa-edit"></i> Edit
+                                </a></li>
+                                {% if user.is_superuser %}
+                                <li><a class="dropdown-item" href="#" 
+                                       data-folder-id="{{ folder.id }}" 
+                                       data-folder-name="{{ folder.name|escapejs }}"
+                                       onclick="managePermissions(this.dataset.folderId, this.dataset.folderName)">
+                                    <i class="fas fa-users"></i> Manage Permissions
+                                </a></li>
+                                {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="#" 
+                                       data-folder-id="{{ folder.id }}" 
+                                       data-folder-name="{{ folder.name|escapejs }}"
+                                       onclick="deleteFolder(this.dataset.folderId, this.dataset.folderName)">
+                                    <i class="fas fa-trash"></i> Delete
+                                </a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <!-- Folder Stats -->
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <small class="text-muted">Images</small>
+                            <div class="fw-bold">{{ folder.images.count }}</div>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Created</small>
+                            <div class="fw-bold">{{ folder.created_at|date:"M d" }}</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Folder Info -->
+                    <div class="mt-3">
+                        <small class="text-muted">
+                            Created by: {{ folder.created_by.username }}
+                            {% if folder.updated_by %}
+                                <br>Updated by: {{ folder.updated_by.username }}
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+                
+                <div class="card-footer">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted">{{ folder.created_at|date:"M d, Y" }}</small>
+                        <a href="{% url 'folder_images' folder.id %}" class="btn btn-sm btn-primary">
+                            View Images
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="col-12">
+            <div class="text-center py-5">
+                <i class="fas fa-folder-open fa-3x text-muted mb-3"></i>
+                <h4>No folders found</h4>
+                <p class="text-muted">Create your first folder to get started!</p>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createFolderModal">
+                    <i class="fas fa-plus"></i> Create Folder
+                </button>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Pagination -->
+{% if folders.has_other_pages %}
+<nav aria-label="Folders pagination">
+    <ul class="pagination justify-content-center">
+        {% if folders.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ folders.previous_page_number }}">&laquo; Previous</a>
+            </li>
+        {% endif %}
+        
+        {% for num in folders.paginator.page_range %}
+            {% if folders.number == num %}
+                <li class="page-item active">
+                    <span class="page-link">{{ num }}</span>
+                </li>
+            {% elif num > folders.number|add:'-3' and num < folders.number|add:'3' %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ num }}">{{ num }}</a>
+                </li>
+            {% endif %}
+        {% endfor %}
+        
+        {% if folders.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ folders.next_page_number }}">Next &raquo;</a>
+            </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+
+<!-- Create Folder Modal -->
+<div class="modal fade" id="createFolderModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New Folder</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createFolderForm">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="folderName" class="form-label">Folder Name</label>
+                        <input type="text" class="form-control" id="folderName" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="folderDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="folderDescription" name="description" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createFolder()">Create Folder</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Folder Modal -->
+<div class="modal fade" id="editFolderModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Folder</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editFolderForm">
+                    {% csrf_token %}
+                    <input type="hidden" id="editFolderId" name="folder_id">
+                    <div class="mb-3">
+                        <label for="editFolderName" class="form-label">Folder Name</label>
+                        <input type="text" class="form-control" id="editFolderName" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editFolderDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="editFolderDescription" name="description" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="updateFolder()">Update Folder</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Permissions Modal -->
+{% if user.is_superuser %}
+<div class="modal fade" id="permissionsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Manage Permissions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="permissionsContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the folder "<span id="deleteFolderName"></span>"?</p>
+                <p class="text-muted">This action can be undone by administrators.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentDeleteId = null;
+
+function createFolder() {
+    const form = document.getElementById('createFolderForm');
+    const formData = new FormData(form);
+    
+    const data = {
+        name: formData.get('name'),
+        description: formData.get('description')
+    };
+    
+    fetch('/ajax/create-folder/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while creating the folder');
+    });
+}
+
+function editFolder(folderId, folderName, folderDescription) {
+    document.getElementById('editFolderId').value = folderId;
+    document.getElementById('editFolderName').value = folderName;
+    document.getElementById('editFolderDescription').value = folderDescription || '';
+    
+    const modal = new bootstrap.Modal(document.getElementById('editFolderModal'));
+    modal.show();
+}
+
+function updateFolder() {
+    const form = document.getElementById('editFolderForm');
+    const formData = new FormData(form);
+    const folderId = formData.get('folder_id');
+    
+    const data = {
+        name: formData.get('name'),
+        description: formData.get('description')
+    };
+    
+    fetch(`/api/v1/folders/${folderId}/`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.id) {
+            location.reload();
+        } else {
+            alert('Error updating folder');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while updating the folder');
+    });
+}
+
+function deleteFolder(folderId, folderName) {
+    currentDeleteId = folderId;
+    document.getElementById('deleteFolderName').textContent = folderName;
+    
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    modal.show();
+}
+
+function confirmDelete() {
+    if (currentDeleteId) {
+        fetch(`/ajax/delete-folder/${currentDeleteId}/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while deleting the folder');
+        });
+    }
+}
+
+function searchFolders() {
+    const searchTerm = document.getElementById('searchFolders').value.toLowerCase();
+    const folderItems = document.querySelectorAll('.folder-item');
+    
+    folderItems.forEach(item => {
+        const folderName = item.getAttribute('data-folder-name');
+        if (folderName.includes(searchTerm)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function managePermissions(folderId, folderName) {
+    // Load permissions management interface
+    fetch(`/api/v1/permissions/?folder=${folderId}`)
+    .then(response => response.json())
+    .then(data => {
+        // Build permissions UI
+        let html = `
+            <h6>Permissions for: ${folderName}</h6>
+            <div class="mb-3">
+                <button class="btn btn-sm btn-primary" onclick="addPermission(${folderId})">
+                    <i class="fas fa-plus"></i> Add Permission
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Permission</th>
+                            <th>Granted By</th>
+                            <th>Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        data.results.forEach(permission => {
+            html += `
+                <tr>
+                    <td>${permission.user.username}</td>
+                    <td><span class="badge bg-info">${permission.permission}</span></td>
+                    <td>${permission.granted_by.username}</td>
+                    <td>${new Date(permission.granted_at).toLocaleDateString()}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-danger" onclick="removePermission(${permission.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        document.getElementById('permissionsContent').innerHTML = html;
+        
+        const modal = new bootstrap.Modal(document.getElementById('permissionsModal'));
+        modal.show();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error loading permissions');
+    });
+}
+
+function showDeletedFolders() {
+    // Implement showing deleted folders for superusers
+    window.location.href = '/admin/storage/folder/?is_deleted__exact=1';
+}
+
+// Search on enter key
+document.getElementById('searchFolders').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        searchFolders();
+    }
+});
+</script>
+{% endblock %}
