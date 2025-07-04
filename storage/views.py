@@ -577,7 +577,6 @@ class UserPermissionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing audit logs"""
     queryset = AuditLog.objects.all()
