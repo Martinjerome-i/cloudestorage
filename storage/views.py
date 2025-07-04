@@ -85,6 +85,8 @@ def folders_view(request):
             Q(id__in=permitted_folders) | Q(created_by=request.user),
             is_deleted=False
         ).distinct()
+        
+    folders = folders.prefetch_related('images')
     
     paginator = Paginator(folders, 20)
     page = request.GET.get('page')

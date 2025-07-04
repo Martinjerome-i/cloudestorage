@@ -51,6 +51,11 @@ class Folder(BaseModel):
         if self.parent:
             return f"{self.parent.get_full_path()}/{self.name}"
         return self.name
+    
+    @property
+    def active_images_count(self):
+        """Get count of non-deleted images in this folder"""
+        return self.images.filter(is_deleted=False).count()
 
 class Image(BaseModel):
     """Image model for storing images"""
