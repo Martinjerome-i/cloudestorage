@@ -84,7 +84,7 @@ class Image(BaseModel):
 class UserPermission(models.Model):
     """User permissions for folders"""
     PERMISSION_CHOICES = [
-        ('read', 'Read'),
+        ('view', 'View'),  # Changed from 'read' to 'view'
         ('create', 'Create'),
         ('update', 'Update'),
         ('delete', 'Delete'),

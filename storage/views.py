@@ -14,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import Folder, Image, UserPermission, AuditLog
-from .serializers import FolderSerializer, ImageSerializer, UserPermissionSerializer, AuditLogSerializer
+from .serializers import FolderSerializer, ImageSerializer, UserPermissionSerializer, AuditLogSerializer, UserSerializer
 from .permissions import IsSuperuserOrOwner, HasFolderPermission, CanDownloadImage
 import json
 
@@ -104,7 +104,7 @@ def images_view(request, folder_id=None):
                    UserPermission.objects.filter(
                        user=request.user, 
                        folder=folder, 
-                       permission='read'
+                       permission='view'  # Changed from 'read' to 'view'
                    ).exists()):
                 messages.error(request, 'You do not have permission to access this folder.')
                 return redirect('folders')
@@ -202,11 +202,11 @@ class FolderViewSet(viewsets.ModelViewSet):
         )
     
     def perform_destroy(self, instance):
-        """Soft delete folder"""
+        """Soft delete folder - default behavior"""
         instance.soft_delete(self.request.user)
         log_action(
             self.request.user, 
-            'delete', 
+            'soft_delete', 
             'folder', 
             instance.id, 
             instance.name,
@@ -239,8 +239,21 @@ class FolderViewSet(viewsets.ModelViewSet):
         
         folder = get_object_or_404(Folder, pk=pk)
         folder_name = folder.name
+        
+        # Delete all images in the folder first
+        images = Image.objects.filter(folder=folder)
+        for image in images:
+            if image.image_file:
+                image.image_file.delete()
+        images.delete()
+        
+        # Delete all permissions for this folder
+        UserPermission.objects.filter(folder=folder).delete()
+        
+        # Delete the folder
         folder.delete()
-        log_action(request.user, 'delete', 'folder', pk, folder_name, request)
+        
+        log_action(request.user, 'permanent_delete', 'folder', pk, folder_name, request)
         
         return Response({'message': 'Folder permanently deleted'})
 
@@ -290,11 +303,11 @@ class ImageViewSet(viewsets.ModelViewSet):
         )
     
     def perform_destroy(self, instance):
-        """Soft delete image"""
+        """Soft delete image - default behavior"""
         instance.soft_delete(self.request.user)
         log_action(
             self.request.user, 
-            'delete', 
+            'soft_delete', 
             'image', 
             instance.id, 
             instance.name,
@@ -347,8 +360,15 @@ class ImageViewSet(viewsets.ModelViewSet):
         
         image = get_object_or_404(Image, pk=pk)
         image_name = image.name
+        
+        # Delete the actual file
+        if image.image_file:
+            image.image_file.delete()
+        
+        # Delete the database record
         image.delete()
-        log_action(request.user, 'delete', 'image', pk, image_name, request)
+        
+        log_action(request.user, 'permanent_delete', 'image', pk, image_name, request)
         
         return Response({'message': 'Image permanently deleted'})
 
@@ -358,9 +378,141 @@ class UserPermissionViewSet(viewsets.ModelViewSet):
     serializer_class = UserPermissionSerializer
     permission_classes = [IsAuthenticated, permissions.IsAdminUser]
     
+    def get_queryset(self):
+        """Filter permissions based on folder if provided"""
+        queryset = UserPermission.objects.all()
+        folder_id = self.request.query_params.get('folder', None)
+        if folder_id is not None:
+            queryset = queryset.filter(folder_id=folder_id)
+        return queryset
+    
     def perform_create(self, serializer):
         """Set granted_by field when creating permission"""
-        serializer.save(granted_by=self.request.user)
+        # Always set 'view' as default permission if not specified
+        permission = self.request.data.get('permission', 'view')
+        serializer.save(granted_by=self.request.user, permission=permission)
+    
+    def create(self, request, *args, **kwargs):
+        """Override create to handle duplicate permissions, auto-grant view, and set default"""
+        try:
+            user_id = request.data.get('user_id')
+            folder_id = request.data.get('folder_id')
+            permission = request.data.get('permission', 'view')  # Default to 'view'
+            
+            # Update request data with default permission
+            request.data['permission'] = permission
+            
+            if user_id and folder_id and permission:
+                # Check if user already has this specific permission
+                existing_permission = UserPermission.objects.filter(
+                    user_id=user_id,
+                    folder_id=folder_id,
+                    permission=permission
+                ).first()
+                
+                if existing_permission:
+                    return Response(
+                        {'error': f'User already has {permission} permission for this folder'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Auto-grant view permission if granting other permissions
+                if permission != 'view':
+                    view_permission_exists = UserPermission.objects.filter(
+                        user_id=user_id,
+                        folder_id=folder_id,
+                        permission='view'
+                    ).exists()
+                    
+                    if not view_permission_exists:
+                        # Create view permission first
+                        UserPermission.objects.create(
+                            user_id=user_id,
+                            folder_id=folder_id,
+                            permission='view',
+                            granted_by=request.user
+                        )
+            
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def update(self, request, *args, **kwargs):
+        """Update permission"""
+        try:
+            permission_obj = self.get_object()
+            new_permission = request.data.get('permission', 'view')
+            
+            # Check if user already has this permission
+            existing_permission = UserPermission.objects.filter(
+                user=permission_obj.user,
+                folder=permission_obj.folder,
+                permission=new_permission
+            ).exclude(id=permission_obj.id).first()
+            
+            if existing_permission:
+                return Response(
+                    {'error': f'User already has {new_permission} permission for this folder'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # If changing from view to another permission, auto-grant view
+            if new_permission != 'view':
+                view_permission_exists = UserPermission.objects.filter(
+                    user=permission_obj.user,
+                    folder=permission_obj.folder,
+                    permission='view'
+                ).exclude(id=permission_obj.id).exists()
+                
+                if not view_permission_exists:
+                    # Create view permission
+                    UserPermission.objects.create(
+                        user=permission_obj.user,
+                        folder=permission_obj.folder,
+                        permission='view',
+                        granted_by=request.user
+                    )
+            
+            permission_obj.permission = new_permission
+            permission_obj.save()
+            
+            serializer = self.get_serializer(permission_obj)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy to handle view permission dependency"""
+        try:
+            permission_obj = self.get_object()
+            
+            # If deleting view permission, check if user has other permissions
+            if permission_obj.permission == 'view':
+                other_permissions = UserPermission.objects.filter(
+                    user=permission_obj.user,
+                    folder=permission_obj.folder
+                ).exclude(id=permission_obj.id, permission='view')
+                
+                if other_permissions.exists():
+                    return Response(
+                        {'error': 'Cannot remove view permission while user has other permissions. Remove other permissions first.'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            return super().destroy(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing audit logs"""
@@ -373,6 +525,31 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         if self.request.user.is_superuser:
             return AuditLog.objects.all()
         return AuditLog.objects.filter(user=self.request.user)
+
+class UserViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for listing users (superuser only)"""
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated, permissions.IsAdminUser]
+    
+    def get_queryset(self):
+        """Filter users based on context"""
+        queryset = User.objects.filter(is_active=True)
+        folder_id = self.request.query_params.get('folder_id')
+        
+        if folder_id:
+            try:
+                folder = Folder.objects.get(id=folder_id)
+                # Exclude folder creator and superusers
+                excluded_users = [folder.created_by.id] if folder.created_by else []
+                superuser_ids = User.objects.filter(is_superuser=True).values_list('id', flat=True)
+                excluded_users.extend(superuser_ids)
+                
+                queryset = queryset.exclude(id__in=excluded_users)
+            except Folder.DoesNotExist:
+                pass
+        
+        return queryset
 
 # AJAX Views for frontend
 @login_required
@@ -477,7 +654,7 @@ def upload_image_ajax(request):
 @login_required
 @require_http_methods(["DELETE"])
 def delete_folder_ajax(request, folder_id):
-    """Delete folder via AJAX"""
+    """Delete folder via AJAX with superuser options"""
     try:
         folder = Folder.objects.get(id=folder_id, is_deleted=False)
         
@@ -491,10 +668,35 @@ def delete_folder_ajax(request, folder_id):
                    ).exists()):
                 return JsonResponse({'error': 'Permission denied'}, status=403)
         
-        folder.soft_delete(request.user)
-        log_action(request.user, 'delete', 'folder', folder.id, folder.name, request)
+        # Check if this is a permanent delete request (superuser only)
+        permanent = request.GET.get('permanent', 'false').lower() == 'true'
         
-        return JsonResponse({'success': True})
+        if permanent and request.user.is_superuser:
+            # Permanent delete
+            folder_name = folder.name
+            
+            # Delete all images in the folder first
+            images = Image.objects.filter(folder=folder)
+            for image in images:
+                if image.image_file:
+                    image.image_file.delete()
+            images.delete()
+            
+            # Delete all permissions for this folder
+            UserPermission.objects.filter(folder=folder).delete()
+            
+            # Delete the folder
+            folder.delete()
+            
+            log_action(request.user, 'permanent_delete', 'folder', folder_id, folder_name, request)
+            
+            return JsonResponse({'success': True, 'message': 'Folder permanently deleted'})
+        else:
+            # Soft delete
+            folder.soft_delete(request.user)
+            log_action(request.user, 'soft_delete', 'folder', folder.id, folder.name, request)
+            
+            return JsonResponse({'success': True, 'message': 'Folder deleted'})
     
     except Folder.DoesNotExist:
         return JsonResponse({'error': 'Folder not found'}, status=404)
@@ -504,7 +706,7 @@ def delete_folder_ajax(request, folder_id):
 @login_required
 @require_http_methods(["DELETE"])
 def delete_image_ajax(request, image_id):
-    """Delete image via AJAX"""
+    """Delete image via AJAX with superuser options"""
     try:
         image = Image.objects.get(id=image_id, is_deleted=False)
         
@@ -518,13 +720,79 @@ def delete_image_ajax(request, image_id):
                    ).exists()):
                 return JsonResponse({'error': 'Permission denied'}, status=403)
         
-        image.soft_delete(request.user)
-        log_action(request.user, 'delete', 'image', image.id, image.name, request)
+        # Check if this is a permanent delete request (superuser only)
+        permanent = request.GET.get('permanent', 'false').lower() == 'true'
         
-        return JsonResponse({'success': True})
+        if permanent and request.user.is_superuser:
+            # Permanent delete
+            image_name = image.name
+            
+            # Delete the actual file
+            if image.image_file:
+                image.image_file.delete()
+            
+            # Delete the database record
+            image.delete()
+            
+            log_action(request.user, 'permanent_delete', 'image', image_id, image_name, request)
+            
+            return JsonResponse({'success': True, 'message': 'Image permanently deleted'})
+        else:
+            # Soft delete
+            image.soft_delete(request.user)
+            log_action(request.user, 'soft_delete', 'image', image.id, image.name, request)
+            
+            return JsonResponse({'success': True, 'message': 'Image deleted'})
     
     except Image.DoesNotExist:
         return JsonResponse({'error': 'Image not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+@csrf_exempt
+def update_permission_ajax(request, permission_id):
+    """Update user permission via AJAX"""
+    if not request.user.is_superuser:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    if request.method == 'PUT':
+        try:
+            data = json.loads(request.body)
+            permission = data.get('permission', 'read')
+            
+            permission_obj = UserPermission.objects.get(id=permission_id)
+            
+            # Check if user already has this permission
+            existing_permission = UserPermission.objects.filter(
+                user=permission_obj.user,
+                folder=permission_obj.folder,
+                permission=permission
+            ).exclude(id=permission_obj.id).first()
+            
+            if existing_permission:
+                return JsonResponse({
+                    'error': f'User already has {permission} permission for this folder'
+                }, status=400)
+            
+            permission_obj.permission = permission
+            permission_obj.save()
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Permission updated successfully',
+                'permission': {
+                    'id': permission_obj.id,
+                    'permission': permission_obj.permission,
+                    'user': permission_obj.user.username,
+                    'folder': permission_obj.folder.name
+                }
+            })
+            
+        except UserPermission.DoesNotExist:
+            return JsonResponse({'error': 'Permission not found'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
     

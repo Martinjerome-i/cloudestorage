@@ -50,7 +50,7 @@
                             </button>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{% url 'folder_images' folder.id %}">
-                                    <i class="fas fa-images"></i> View Images
+                                    <i class="fas fa-images"></i> View
                                 </a></li>
                                 <li><a class="dropdown-item" href="#" 
                                        data-folder-id="{{ folder.id }}" 
@@ -64,7 +64,7 @@
                                        data-folder-id="{{ folder.id }}" 
                                        data-folder-name="{{ folder.name|escapejs }}"
                                        onclick="managePermissions(this.dataset.folderId, this.dataset.folderName)">
-                                    <i class="fas fa-users"></i> Manage Permissions
+                                    <i class="fas fa-users"></i> Manage
                                 </a></li>
                                 {% endif %}
                                 <li><hr class="dropdown-divider"></li>
@@ -249,7 +249,17 @@
             </div>
             <div class="modal-body">
                 <p>Are you sure you want to delete the folder "<span id="deleteFolderName"></span>"?</p>
+                {% if user.is_superuser %}
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="permanentDelete">
+                    <label class="form-check-label text-danger" for="permanentDelete">
+                        <strong>Permanently delete</strong> (cannot be undone)
+                    </label>
+                </div>
+                <p class="text-muted mt-2">If unchecked, folder will be soft deleted and can be restored.</p>
+                {% else %}
                 <p class="text-muted">This action can be undone by administrators.</p>
+                {% endif %}
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -261,6 +271,18 @@
 {% endblock %}
 
 {% block scripts %}
+
+<style>
+.folder-card {
+    transition: none !important;
+    transform: none !important;
+}
+
+.folder-card:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+</style>
 <script>
 let currentDeleteId = null;
 
@@ -346,7 +368,10 @@ function deleteFolder(folderId, folderName) {
 
 function confirmDelete() {
     if (currentDeleteId) {
-        fetch(`/ajax/delete-folder/${currentDeleteId}/`, {
+        const permanent = document.getElementById('permanentDelete')?.checked || false;
+        const url = `/ajax/delete-folder/${currentDeleteId}/${permanent ? '?permanent=true' : ''}`;
+        
+        fetch(url, {
             method: 'DELETE',
             headers: {
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
@@ -381,14 +406,69 @@ function searchFolders() {
     });
 }
 
+function savePermission(folderId) {
+    const userId = document.getElementById('selectUser').value;
+    const permission = document.getElementById('selectPermission').value;
+    
+    if (!userId || !permission) {
+        alert('Please select both user and permission type');
+        return;
+    }
+    
+    const data = {
+        user_id: parseInt(userId),
+        folder_id: parseInt(folderId),
+        permission: permission
+    };
+    
+    fetch('/api/v1/permissions/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => Promise.reject(err));
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.id) {
+            alert('Permission added successfully!');
+            cancelAddPermission();
+            const folderName = document.querySelector('#permissionsModal .modal-title').textContent.split(': ')[1];
+            managePermissions(folderId, folderName);
+        } else {
+            alert('Error adding permission: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        // Show more specific error message
+        let errorMsg = 'An error occurred while adding the permission';
+        if (error.error) {
+            errorMsg += ': ' + error.error;
+        }
+        alert(errorMsg);
+    });
+}
+
 function managePermissions(folderId, folderName) {
+    // Set modal title
+    document.querySelector('#permissionsModal .modal-title').textContent = `Manage Permissions: ${folderName}`;
+    
+    // Store folder ID for later use
+    document.querySelector('#permissionsModal').dataset.folderId = folderId;
+    
     // Load permissions management interface
     fetch(`/api/v1/permissions/?folder=${folderId}`)
     .then(response => response.json())
     .then(data => {
         // Build permissions UI
         let html = `
-            <h6>Permissions for: ${folderName}</h6>
             <div class="mb-3">
                 <button class="btn btn-sm btn-primary" onclick="addPermission(${folderId})">
                     <i class="fas fa-plus"></i> Add Permission
@@ -405,24 +485,75 @@ function managePermissions(folderId, folderName) {
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="permissionsTableBody">
         `;
         
-        data.results.forEach(permission => {
+        if (data.results && data.results.length > 0) {
+            // Group permissions by user for better display
+            const permissionsByUser = {};
+            data.results.forEach(permission => {
+                if (!permissionsByUser[permission.user.id]) {
+                    permissionsByUser[permission.user.id] = {
+                        user: permission.user,
+                        permissions: []
+                    };
+                }
+                permissionsByUser[permission.user.id].permissions.push(permission);
+            });
+            
+            // Display grouped permissions
+            Object.values(permissionsByUser).forEach(userGroup => {
+                const permissions = userGroup.permissions;
+                const firstPermission = permissions[0];
+                
+                html += `
+                    <tr>
+                        <td rowspan="${permissions.length}">${userGroup.user.username}</td>
+                        <td>
+                            <span class="badge bg-${getPermissionBadgeClass(firstPermission.permission)}">${firstPermission.permission}</span>
+                        </td>
+                        <td>${firstPermission.granted_by.username}</td>
+                        <td>${new Date(firstPermission.granted_at).toLocaleDateString()}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-warning me-1" onclick="editPermission(${firstPermission.id}, '${firstPermission.permission}', '${userGroup.user.username}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="removePermission(${firstPermission.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+                
+                // Add additional rows for multiple permissions
+                for (let i = 1; i < permissions.length; i++) {
+                    const perm = permissions[i];
+                    html += `
+                        <tr>
+                            <td>
+                                <span class="badge bg-${getPermissionBadgeClass(perm.permission)}">${perm.permission}</span>
+                            </td>
+                            <td>${perm.granted_by.username}</td>
+                            <td>${new Date(perm.granted_at).toLocaleDateString()}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-warning me-1" onclick="editPermission(${perm.id}, '${perm.permission}', '${userGroup.user.username}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="removePermission(${perm.id})">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }
+            });
+        } else {
             html += `
                 <tr>
-                    <td>${permission.user.username}</td>
-                    <td><span class="badge bg-info">${permission.permission}</span></td>
-                    <td>${permission.granted_by.username}</td>
-                    <td>${new Date(permission.granted_at).toLocaleDateString()}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-danger" onclick="removePermission(${permission.id})">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </td>
+                    <td colspan="5" class="text-center text-muted">No permissions assigned</td>
                 </tr>
             `;
-        });
+        }
         
         html += `
                     </tbody>
@@ -439,6 +570,216 @@ function managePermissions(folderId, folderName) {
         console.error('Error:', error);
         alert('Error loading permissions');
     });
+}
+
+function addPermission(folderId) {
+    // First, fetch the list of users (excluding superusers and folder creator)
+    fetch(`/api/v1/users/?folder_id=${folderId}`)
+    .then(response => response.json())
+    .then(data => {
+        const users = data.results;
+        
+        let html = `
+            <div class="mb-3" id="addPermissionSection">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Add New Permission</h6>
+                    </div>
+                    <div class="card-body">
+                        <form id="addPermissionForm">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="selectUser" class="form-label">Select User</label>
+                                    <select class="form-select" id="selectUser" required>
+                                        <option value="">Choose a user...</option>
+        `;
+        
+        users.forEach(user => {
+            html += `<option value="${user.id}">${user.username} (${user.email || 'No email'})</option>`;
+        });
+        
+        html += `
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="selectPermission" class="form-label">Permission Type</label>
+                                    <select class="form-select" id="selectPermission" required>
+                                        <option value="view" selected>View - Can view/list items</option>
+                                        <option value="create">Create - Can create new items (includes view)</option>
+                                        <option value="update">Update - Can modify items (includes view)</option>
+                                        <option value="delete">Delete - Can delete items (includes view)</option>
+                                        <option value="download">Download - Can download files (includes view)</option>
+                                    </select>
+                                    <small class="form-text text-muted">
+                                        Note: Selecting any permission other than "View" will automatically grant view access.
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button type="button" class="btn btn-primary" onclick="savePermission(${folderId})">
+                                    <i class="fas fa-save"></i> Add Permission
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="cancelAddPermission()">
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <hr>
+        `;
+        
+        // Insert the form at the top of permissions content
+        const permissionsContent = document.getElementById('permissionsContent');
+        const currentContent = permissionsContent.innerHTML;
+        permissionsContent.innerHTML = html + currentContent;
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error loading users');
+    });
+}
+
+function editPermission(permissionId, currentPermission, username) {
+    // Create modal for editing permission
+    const modalHtml = `
+        <div class="modal fade" id="editPermissionModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Edit Permission for ${username}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="editPermissionForm">
+                            <div class="mb-3">
+                                <label for="editPermissionSelect" class="form-label">Permission Type</label>
+                                <select class="form-select" id="editPermissionSelect" required>
+                                    <option value="view" ${currentPermission === 'view' ? 'selected' : ''}>View - Can view/list items</option>
+                                    <option value="create" ${currentPermission === 'create' ? 'selected' : ''}>Create - Can create new items (includes view)</option>
+                                    <option value="update" ${currentPermission === 'update' ? 'selected' : ''}>Update - Can modify items (includes view)</option>
+                                    <option value="delete" ${currentPermission === 'delete' ? 'selected' : ''}>Delete - Can delete items (includes view)</option>
+                                    <option value="download" ${currentPermission === 'download' ? 'selected' : ''}>Download - Can download files (includes view)</option>
+                                </select>
+                                <small class="form-text text-muted">
+                                    Note: Selecting any permission other than "View" will automatically grant view access if not already present.
+                                </small>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" onclick="savePermissionUpdate(${permissionId})">
+                            <i class="fas fa-save"></i> Update Permission
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remove existing modal if present
+    const existingModal = document.getElementById('editPermissionModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Add modal to document
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('editPermissionModal'));
+    modal.show();
+    
+    // Clean up modal when closed
+    document.getElementById('editPermissionModal').addEventListener('hidden.bs.modal', function () {
+        this.remove();
+    });
+}
+
+function savePermissionUpdate(permissionId) {
+    const permission = document.getElementById('editPermissionSelect').value;
+    
+    fetch(`/ajax/update-permission/${permissionId}/`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            permission: permission
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Close edit modal
+            const editModal = bootstrap.Modal.getInstance(document.getElementById('editPermissionModal'));
+            editModal.hide();
+            
+            // Refresh the permissions list
+            const currentFolderId = document.querySelector('#permissionsModal').dataset.folderId;
+            const currentFolderName = document.querySelector('#permissionsModal .modal-title').textContent.split(': ')[1];
+            managePermissions(currentFolderId, currentFolderName);
+            
+            alert('Permission updated successfully!');
+        } else {
+            alert('Error updating permission: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while updating the permission');
+    });
+}
+
+function getPermissionBadgeClass(permission) {
+    const badgeClasses = {
+        'view': 'info',
+        'create': 'success',
+        'update': 'warning',
+        'delete': 'danger',
+        'download': 'primary'
+    };
+    return badgeClasses[permission] || 'secondary';
+}
+
+function cancelAddPermission() {
+    // Remove the add permission form
+    const section = document.getElementById('addPermissionSection');
+    if (section) {
+        section.nextElementSibling.remove(); // Remove the <hr> too
+        section.remove();
+    }
+}
+
+function removePermission(permissionId) {
+    if (confirm('Are you sure you want to remove this permission?')) {
+        fetch(`/api/v1/permissions/${permissionId}/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                // Refresh the permissions list without reloading the page
+                const currentFolderId = document.querySelector('#permissionsModal').dataset.folderId;
+                const currentFolderName = document.querySelector('#permissionsModal .modal-title').textContent.split(': ')[1];
+                managePermissions(currentFolderId, currentFolderName);
+                alert('Permission removed successfully!');
+            } else {
+                return response.json().then(data => {
+                    alert('Error removing permission: ' + (data.error || 'Unknown error'));
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while removing the permission');
+        });
+    }
 }
 
 function showDeletedFolders() {

@@ -4,6 +4,7 @@ from . import views
 
 # API Router
 router = DefaultRouter()
+router.register(r'users', views.UserViewSet)
 router.register(r'folders', views.FolderViewSet)
 router.register(r'images', views.ImageViewSet)
 router.register(r'permissions', views.UserPermissionViewSet)
@@ -26,6 +27,7 @@ urlpatterns = [
     path('ajax/upload-image/', views.upload_image_ajax, name='upload_image_ajax'),
     path('ajax/delete-folder/<int:folder_id>/', views.delete_folder_ajax, name='delete_folder_ajax'),
     path('ajax/delete-image/<int:image_id>/', views.delete_image_ajax, name='delete_image_ajax'),
+    path('ajax/update-permission/<int:permission_id>/', views.update_permission_ajax, name='update_permission_ajax'),
     
     # API URLs
     path('api/v1/', include(router.urls)),
