@@ -405,9 +405,6 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="downloadFromView">
-                    <i class="fas fa-download"></i> Download
-                </button>
             </div>
         </div>
     </div>
@@ -560,21 +557,13 @@ function downloadImage(imageId) {
 }
 
 // Edit image function
-function editImage(imageId) {
-    fetch(`/api/v1/images/${imageId}/`)
-    .then(response => response.json())
-    .then(data => {
-        document.getElementById('editImageId').value = imageId;
-        document.getElementById('editImageName').value = data.name;
-        document.getElementById('editImageDescription').value = data.description || '';
-        
-        const editModal = new bootstrap.Modal(document.getElementById('editImageModal'));
-        editModal.show();
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Error loading image data');
-    });
+function editImage(imageId, imageName, imageDescription) {
+    document.getElementById('editImageId').value = imageId;
+    document.getElementById('editImageName').value = imageName || '';
+    document.getElementById('editImageDescription').value = imageDescription || '';
+    
+    const editModal = new bootstrap.Modal(document.getElementById('editImageModal'));
+    editModal.show();
 }
 
 // Update image function

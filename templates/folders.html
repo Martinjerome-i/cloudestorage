@@ -503,7 +503,7 @@ function managePermissions(folderId, folderName) {
     fetch(`/api/v1/permissions/?folder=${folderId}`)
     .then(response => response.json())
     .then(data => {
-        // Build permissions UI (existing code remains the same)
+        // Build permissions UI
         let html = `
             <div class="mb-3">
                 <button class="btn btn-sm btn-primary" onclick="addPermission(${folderId})">
@@ -551,9 +551,6 @@ function managePermissions(folderId, folderName) {
                         <td>${firstPermission.granted_by.username}</td>
                         <td>${new Date(firstPermission.granted_at).toLocaleDateString()}</td>
                         <td>
-                            <button class="btn btn-sm btn-outline-warning me-1" onclick="editPermission(${firstPermission.id}, '${firstPermission.permission}', '${userGroup.user.username}')">
-                                <i class="fas fa-edit"></i>
-                            </button>
                             <button class="btn btn-sm btn-outline-danger" onclick="removePermission(${firstPermission.id})">
                                 <i class="fas fa-trash"></i>
                             </button>
@@ -572,9 +569,6 @@ function managePermissions(folderId, folderName) {
                             <td>${perm.granted_by.username}</td>
                             <td>${new Date(perm.granted_at).toLocaleDateString()}</td>
                             <td>
-                                <button class="btn btn-sm btn-outline-warning me-1" onclick="editPermission(${perm.id}, '${perm.permission}', '${userGroup.user.username}')">
-                                    <i class="fas fa-edit"></i>
-                                </button>
                                 <button class="btn btn-sm btn-outline-danger" onclick="removePermission(${perm.id})">
                                     <i class="fas fa-trash"></i>
                                 </button>
@@ -680,99 +674,6 @@ function addPermission(folderId) {
     .catch(error => {
         console.error('Error:', error);
         alert('Error loading users');
-    });
-}
-
-function editPermission(permissionId, currentPermission, username) {
-    // Create modal for editing permission
-    const modalHtml = `
-        <div class="modal fade" id="editPermissionModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Edit Permission for ${username}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form id="editPermissionForm">
-                            <div class="mb-3">
-                                <label for="editPermissionSelect" class="form-label">Permission Type</label>
-                                <select class="form-select" id="editPermissionSelect" required>
-                                    <option value="view" ${currentPermission === 'view' ? 'selected' : ''}>View - Can view/list items</option>
-                                    <option value="create" ${currentPermission === 'create' ? 'selected' : ''}>Create - Can create new items (includes view)</option>
-                                    <option value="update" ${currentPermission === 'update' ? 'selected' : ''}>Update - Can modify items (includes view)</option>
-                                    <option value="delete" ${currentPermission === 'delete' ? 'selected' : ''}>Delete - Can delete items (includes view)</option>
-                                    <option value="download" ${currentPermission === 'download' ? 'selected' : ''}>Download - Can download files (includes view)</option>
-                                </select>
-                                <small class="form-text text-muted">
-                                    Note: Selecting any permission other than "View" will automatically grant view access if not already present.
-                                </small>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-primary" onclick="savePermissionUpdate(${permissionId})">
-                            <i class="fas fa-save"></i> Update Permission
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Remove existing modal if present
-    const existingModal = document.getElementById('editPermissionModal');
-    if (existingModal) {
-        existingModal.remove();
-    }
-    
-    // Add modal to document
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    
-    // Show modal
-    const modal = new bootstrap.Modal(document.getElementById('editPermissionModal'));
-    modal.show();
-    
-    // Clean up modal when closed
-    document.getElementById('editPermissionModal').addEventListener('hidden.bs.modal', function () {
-        this.remove();
-    });
-}
-
-function savePermissionUpdate(permissionId) {
-    const permission = document.getElementById('editPermissionSelect').value;
-    
-    fetch(`/ajax/update-permission/${permissionId}/`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-        },
-        body: JSON.stringify({
-            permission: permission
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Close edit modal
-            const editModal = bootstrap.Modal.getInstance(document.getElementById('editPermissionModal'));
-            editModal.hide();
-            
-            // Refresh the permissions list
-            const currentFolderId = document.querySelector('#permissionsModal').dataset.folderId;
-            const currentFolderName = document.querySelector('#permissionsModal .modal-title').textContent.split(': ')[1];
-            managePermissions(currentFolderId, currentFolderName);
-            
-            alert('Permission updated successfully!');
-        } else {
-            alert('Error updating permission: ' + data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('An error occurred while updating the permission');
     });
 }
 

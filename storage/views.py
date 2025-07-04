@@ -115,7 +115,6 @@ def folders_view(request):
     
     return render(request, 'folders.html', {'folders': folders})
 
-
 @login_required 
 def images_view(request, folder_id=None): 
     """View for managing images in a folder""" 
@@ -198,7 +197,7 @@ def images_view(request, folder_id=None):
         'folder': folder, 
         'user_permissions': user_permissions, 
     })
-
+    
 # Utility function to log actions
 def log_action(user, action, content_type, object_id, object_name, request=None):
     """Log user actions for audit trail"""
