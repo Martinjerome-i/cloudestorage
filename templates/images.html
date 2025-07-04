@@ -90,7 +90,7 @@
                                             
                                             <!-- Download -->
                                             {% if 'download' in perms %}
-                                            <li><a class="dropdown-item" href="/api/v1/images/{{ image.id }}/download/" download>
+                                            <li><a class="dropdown-item" href="#" onclick="downloadImage('{{ image.id }}')">
                                                 <i class="fas fa-download"></i> Download
                                             </a></li>
                                             {% endif %}
@@ -134,7 +134,7 @@
                                         
                                         <!-- Download -->
                                         {% if 'download' in user_permissions %}
-                                        <li><a class="dropdown-item" href="/api/v1/images/{{ image.id }}/download/" download>
+                                        <li><a class="dropdown-item" href="#" onclick="downloadImage('{{ image.id }}')">
                                             <i class="fas fa-download"></i> Download
                                         </a></li>
                                         {% endif %}
@@ -237,9 +237,9 @@
                                             </button>
                                             {% endif %}
                                             {% if 'download' in perms %}
-                                            <a href="/api/v1/images/{{ image.id }}/download/" class="btn btn-sm btn-outline-success" title="Download" download>
+                                            <button class="btn btn-sm btn-outline-success" onclick="downloadImage('{{ image.id }}')" title="Download">
                                                 <i class="fas fa-download"></i>
-                                            </a>
+                                            </button>
                                             {% endif %}
                                             {% if 'update' in perms %}
                                             <button class="btn btn-sm btn-outline-secondary" onclick="editImage('{{ image.id }}', '{{ image.name|escapejs }}', '{{ image.description|escapejs }}')" title="Edit">
@@ -259,9 +259,9 @@
                                         </button>
                                         {% endif %}
                                         {% if 'download' in user_permissions %}
-                                        <a href="/api/v1/images/{{ image.id }}/download/" class="btn btn-sm btn-outline-success" title="Download" download>
+                                        <button class="btn btn-sm btn-outline-success" onclick="downloadImage('{{ image.id }}')" title="Download">
                                             <i class="fas fa-download"></i>
-                                        </a>
+                                        </button>
                                         {% endif %}
                                         {% if 'update' in user_permissions %}
                                         <button class="btn btn-sm btn-outline-secondary" onclick="editImage('{{ image.id }}', '{{ image.name|escapejs }}', '{{ image.description|escapejs }}')" title="Edit">
@@ -446,6 +446,48 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+.folder-card {
+    transition: none !important;
+    transform: none !important;
+}
+
+.folder-card:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.image-card {
+    transition: none !important;
+    transform: none !important;
+}
+
+.image-card:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.image-card img {
+    transition: none !important;
+    transform: none !important;
+}
+
+.image-card img:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.card-img-top {
+    transition: none !important;
+    transform: none !important;
+}
+
+.card-img-top:hover {
+    transform: none !important;
+    scale: none !important;
+    zoom: none !important;
+}
+</style>
 <script>
 // View toggle functionality
 let isGridView = true;
@@ -553,7 +595,47 @@ function viewImage(imageId) {
 
 // Download image function
 function downloadImage(imageId) {
-    window.open(`/api/v1/images/${imageId}/download/`, '_blank');
+    // Use the API endpoint with proper permission checking
+    fetch(`/api/v1/images/${imageId}/download/`, {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            // Create a blob from the response
+            return response.blob().then(blob => {
+                // Get filename from content-disposition header or use default
+                const contentDisposition = response.headers.get('content-disposition');
+                let filename = 'image.jpg';
+                if (contentDisposition) {
+                    const match = contentDisposition.match(/filename="(.+)"/);
+                    if (match) {
+                        filename = match[1];
+                    }
+                }
+                
+                // Create download link
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            });
+        } else if (response.status === 403) {
+            alert('You do not have permission to download this image');
+        } else {
+            alert('Error downloading image');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while downloading the image');
+    });
 }
 
 // Edit image function
@@ -585,9 +667,19 @@ function updateImage() {
         },
         body: JSON.stringify(data)
     })
-    .then(response => response.json())
+    .then(response => {
+        if (response.ok) {
+            return response.json();
+        } else if (response.status === 403) {
+            throw new Error('You do not have permission to edit this image');
+        } else {
+            throw new Error('Error updating image');
+        }
+    })
     .then(data => {
         if (data.id) {
+            // Close modal and reload page
+            bootstrap.Modal.getInstance(document.getElementById('editImageModal')).hide();
             location.reload();
         } else {
             alert('Error updating image');
@@ -595,10 +687,9 @@ function updateImage() {
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('An error occurred while updating the image');
+        alert(error.message || 'An error occurred while updating the image');
     });
 }
-
 // Delete image function
 function deleteImage(imageId, imageName) {
     if (confirm(`Are you sure you want to delete "${imageName}"?`)) {

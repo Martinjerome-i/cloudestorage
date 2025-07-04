@@ -50,7 +50,7 @@ class HasFolderPermission(permissions.BasePermission):
     def check_folder_permission(self, user, folder_id, method):
         """Check if user has permission for specific action on folder"""
         permission_map = {
-            'GET': 'view',  # Changed from 'read' to 'view'
+            'GET': 'view',
             'POST': 'create',
             'PUT': 'update',
             'PATCH': 'update',
@@ -59,12 +59,13 @@ class HasFolderPermission(permissions.BasePermission):
         
         required_permission = permission_map.get(method, 'view')
         
-        # Check if user has the specific permission or 'view' permission (default)
+        # Check if user has the specific permission
         return UserPermission.objects.filter(
             user=user,
             folder_id=folder_id,
-            permission__in=[required_permission, 'view']  # Changed from 'read' to 'view'
+            permission=required_permission
         ).exists()
+
 
 class CanDownloadImage(permissions.BasePermission):
     """
@@ -75,9 +76,13 @@ class CanDownloadImage(permissions.BasePermission):
         if request.user.is_superuser:
             return True
         
-        # Check download permission or read permission for the folder
+        # Check if user is the owner
+        if hasattr(obj, 'created_by') and obj.created_by == request.user:
+            return True
+        
+        # Check download permission for the folder
         return UserPermission.objects.filter(
             user=request.user,
             folder=obj.folder,
-            permission__in=['download', 'read']
+            permission='download'
         ).exists()

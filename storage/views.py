@@ -197,7 +197,7 @@ def images_view(request, folder_id=None):
         'folder': folder, 
         'user_permissions': user_permissions, 
     })
-    
+
 # Utility function to log actions
 def log_action(user, action, content_type, object_id, object_name, request=None):
     """Log user actions for audit trail"""
@@ -377,24 +377,40 @@ class ImageViewSet(viewsets.ModelViewSet):
             self.request
         )
     
+    
+    
     @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated, CanDownloadImage])
     def download(self, request, pk=None):
-        """Download image file"""
-        image = get_object_or_404(Image, pk=pk, is_deleted=False)
+        image = self.get_object()
         
-        if not image.image_file:
-            return Response(
-                {'error': 'Image file not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Double check permissions
+        if not request.user.is_superuser and image.created_by != request.user:
+            has_download_permission = UserPermission.objects.filter(
+                user=request.user,
+                folder=image.folder,
+                permission='download'
+            ).exists()
+            
+            if not has_download_permission:
+                return Response(
+                    {'error': 'You do not have permission to download this image'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
-        log_action(request.user, 'download', 'image', image.id, image.name, request)
-        
-        response = HttpResponse(
-            image.image_file.read(), 
-            content_type=f'image/{image.file_type}'
+        # Create audit log
+        AuditLog.objects.create(
+            user=request.user,
+            action='download_image',
+            resource_type='image',
+            resource_id=image.id,
+            details=f'Downloaded image: {image.name}'
         )
-        response['Content-Disposition'] = f'attachment; filename="{image.name}.{image.file_type}"'
+        
+        response = FileResponse(
+            image.image_file.open(),
+            as_attachment=True,
+            filename=image.name
+        )
         return response
     
     @action(detail=True, methods=['post'])
