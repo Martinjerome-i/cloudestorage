@@ -88,53 +88,115 @@ def folders_view(request):
         
     folders = folders.prefetch_related('images')
     
+    # Get user permissions for each folder
+    user_permissions = {}
+    if not request.user.is_superuser:
+        permissions = UserPermission.objects.filter(
+            user=request.user,
+            folder__in=folders
+        ).values('folder_id', 'permission')
+        
+        for perm in permissions:
+            folder_id = perm['folder_id']
+            if folder_id not in user_permissions:
+                user_permissions[folder_id] = []
+            user_permissions[folder_id].append(perm['permission'])
+    
+    # Add permissions to folder objects
+    for folder in folders:
+        if request.user.is_superuser or folder.created_by == request.user:
+            folder.user_permissions = ['view', 'create', 'update', 'delete', 'download']
+        else:
+            folder.user_permissions = user_permissions.get(folder.id, [])
+    
     paginator = Paginator(folders, 20)
     page = request.GET.get('page')
     folders = paginator.get_page(page)
     
     return render(request, 'folders.html', {'folders': folders})
 
-@login_required
-def images_view(request, folder_id=None):
-    """View for managing images in a folder"""
-    if folder_id:
-        folder = get_object_or_404(Folder, id=folder_id, is_deleted=False)
+
+@login_required 
+def images_view(request, folder_id=None): 
+    """View for managing images in a folder""" 
+    if folder_id: 
+        folder = get_object_or_404(Folder, id=folder_id, is_deleted=False) 
+         
+        # Check permissions 
+        if not request.user.is_superuser: 
+            if not (folder.created_by == request.user or  
+                   UserPermission.objects.filter( 
+                       user=request.user,  
+                       folder=folder,  
+                       permission='view' 
+                   ).exists()): 
+                messages.error(request, 'You do not have permission to access this folder.') 
+                return redirect('folders') 
+         
+        images = Image.objects.filter(folder=folder, is_deleted=False) 
         
-        # Check permissions
-        if not request.user.is_superuser:
-            if not (folder.created_by == request.user or 
-                   UserPermission.objects.filter(
-                       user=request.user, 
-                       folder=folder, 
-                       permission='view'  # Changed from 'read' to 'view'
-                   ).exists()):
-                messages.error(request, 'You do not have permission to access this folder.')
-                return redirect('folders')
-        
-        images = Image.objects.filter(folder=folder, is_deleted=False)
-    else:
-        # Show all images user has access to
-        if request.user.is_superuser:
-            images = Image.objects.filter(is_deleted=False)
-        else:
-            permitted_folders = UserPermission.objects.filter(
-                user=request.user
-            ).values_list('folder_id', flat=True)
+        # Get user permissions for the current folder
+        if request.user.is_superuser or folder.created_by == request.user: 
+            user_permissions = ['view', 'create', 'update', 'delete', 'download'] 
+        else: 
+            user_permissions = list(UserPermission.objects.filter( 
+                user=request.user, 
+                folder=folder 
+            ).values_list('permission', flat=True))
             
-            images = Image.objects.filter(
-                Q(folder__id__in=permitted_folders) | Q(created_by=request.user),
-                is_deleted=False
-            ).distinct()
-        
-        folder = None
-    
-    paginator = Paginator(images, 20)
-    page = request.GET.get('page')
-    images = paginator.get_page(page)
-    
-    return render(request, 'images.html', {
-        'images': images,
-        'folder': folder,
+    else: 
+        # Show all images user has access to 
+        if request.user.is_superuser: 
+            images = Image.objects.filter(is_deleted=False) 
+            user_permissions = ['view', 'create', 'update', 'delete', 'download']
+        else: 
+            permitted_folders = UserPermission.objects.filter( 
+                user=request.user 
+            ).values_list('folder_id', flat=True) 
+             
+            images = Image.objects.filter( 
+                Q(folder__id__in=permitted_folders) | Q(created_by=request.user), 
+                is_deleted=False 
+            ).distinct() 
+            
+            # For all images view, check if user has create permission in any folder
+            # or if they have any folders they created
+            has_create_permission = (
+                UserPermission.objects.filter(
+                    user=request.user,
+                    permission='create'
+                ).exists() or
+                Folder.objects.filter(created_by=request.user, is_deleted=False).exists()
+            )
+            
+            user_permissions = []
+            if has_create_permission:
+                user_permissions.append('create')
+            
+            # Add other permissions as needed for all images view
+            if UserPermission.objects.filter(user=request.user, permission='view').exists():
+                user_permissions.append('view')
+                
+        folder = None 
+     
+    # Add permissions to each image for individual image operations
+    for image in images: 
+        if request.user.is_superuser or image.created_by == request.user: 
+            image.user_permissions = ['view', 'create', 'update', 'delete', 'download'] 
+        else: 
+            image.user_permissions = list(UserPermission.objects.filter( 
+                user=request.user, 
+                folder=image.folder 
+            ).values_list('permission', flat=True)) 
+     
+    paginator = Paginator(images, 20) 
+    page = request.GET.get('page') 
+    images = paginator.get_page(page) 
+     
+    return render(request, 'images.html', { 
+        'images': images, 
+        'folder': folder, 
+        'user_permissions': user_permissions, 
     })
 
 # Utility function to log actions

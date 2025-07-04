@@ -6,9 +6,13 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>Folders</h2>
     <div>
+        <!-- Only show Create Folder button if user is superuser, or if they have create permission on any folder, or if they are the owner -->
+        {% if user.is_superuser %}
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createFolderModal">
             <i class="fas fa-plus"></i> Create Folder
         </button>
+        {% endif %}
+        
         {% if user.is_superuser %}
         <button class="btn btn-secondary" onclick="showDeletedFolders()">
             <i class="fas fa-trash"></i> View Deleted
@@ -49,31 +53,50 @@
                                 <i class="fas fa-ellipsis-v"></i>
                             </button>
                             <ul class="dropdown-menu">
+                                <!-- View is always available if user has access to folder -->
+                                {% if 'view' in folder.user_permissions %}
                                 <li><a class="dropdown-item" href="{% url 'folder_images' folder.id %}">
                                     <i class="fas fa-images"></i> View
                                 </a></li>
+                                {% endif %}
+                                
+                                <!-- Edit only if user has update permission -->
+                                {% if 'update' in folder.user_permissions %}
                                 <li><a class="dropdown-item" href="#" 
-                                       data-folder-id="{{ folder.id }}" 
-                                       data-folder-name="{{ folder.name|escapejs }}" 
-                                       data-folder-description="{{ folder.description|escapejs }}"
-                                       onclick="editFolder(this.dataset.folderId, this.dataset.folderName, this.dataset.folderDescription)">
+                                    data-folder-id="{{ folder.id }}" 
+                                    data-folder-name="{{ folder.name|escapejs }}" 
+                                    data-folder-description="{{ folder.description|escapejs }}"
+                                    onclick="editFolder(this.dataset.folderId, this.dataset.folderName, this.dataset.folderDescription)">
                                     <i class="fas fa-edit"></i> Edit
                                 </a></li>
+                                {% endif %}
+                                
+                                <!-- Manage permissions only for superusers -->
                                 {% if user.is_superuser %}
                                 <li><a class="dropdown-item" href="#" 
-                                       data-folder-id="{{ folder.id }}" 
-                                       data-folder-name="{{ folder.name|escapejs }}"
-                                       onclick="managePermissions(this.dataset.folderId, this.dataset.folderName)">
+                                    data-folder-id="{{ folder.id }}" 
+                                    data-folder-name="{{ folder.name|escapejs }}"
+                                    onclick="managePermissions(this.dataset.folderId, this.dataset.folderName)">
                                     <i class="fas fa-users"></i> Manage
                                 </a></li>
                                 {% endif %}
-                                <li><hr class="dropdown-divider"></li>
+                                
+                                <!-- Show separator only if there are actions above and delete below -->
+                                {% if 'view' in folder.user_permissions or 'update' in folder.user_permissions or user.is_superuser %}
+                                    {% if 'delete' in folder.user_permissions %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    {% endif %}
+                                {% endif %}
+                                
+                                <!-- Delete only if user has delete permission -->
+                                {% if 'delete' in folder.user_permissions %}
                                 <li><a class="dropdown-item text-danger" href="#" 
-                                       data-folder-id="{{ folder.id }}" 
-                                       data-folder-name="{{ folder.name|escapejs }}"
-                                       onclick="deleteFolder(this.dataset.folderId, this.dataset.folderName)">
+                                    data-folder-id="{{ folder.id }}" 
+                                    data-folder-name="{{ folder.name|escapejs }}"
+                                    onclick="deleteFolder(this.dataset.folderId, this.dataset.folderName)">
                                     <i class="fas fa-trash"></i> Delete
                                 </a></li>
+                                {% endif %}
                             </ul>
                         </div>
                     </div>
@@ -456,6 +479,19 @@ function savePermission(folderId) {
     });
 }
 
+document.getElementById('permissionsModal').addEventListener('hidden.bs.modal', function () {
+    // Remove any remaining modal backdrops
+    const backdrops = document.querySelectorAll('.modal-backdrop');
+    backdrops.forEach(backdrop => backdrop.remove());
+    
+    // Remove modal-open class from body
+    document.body.classList.remove('modal-open');
+    
+    // Reset body styles
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+});
+
 function managePermissions(folderId, folderName) {
     // Set modal title
     document.querySelector('#permissionsModal .modal-title').textContent = `Manage Permissions: ${folderName}`;
@@ -467,7 +503,7 @@ function managePermissions(folderId, folderName) {
     fetch(`/api/v1/permissions/?folder=${folderId}`)
     .then(response => response.json())
     .then(data => {
-        // Build permissions UI
+        // Build permissions UI (existing code remains the same)
         let html = `
             <div class="mb-3">
                 <button class="btn btn-sm btn-primary" onclick="addPermission(${folderId})">
@@ -562,6 +598,12 @@ function managePermissions(folderId, folderName) {
         `;
         
         document.getElementById('permissionsContent').innerHTML = html;
+        
+        // Dispose of any existing modal instance before creating a new one
+        const existingModal = bootstrap.Modal.getInstance(document.getElementById('permissionsModal'));
+        if (existingModal) {
+            existingModal.dispose();
+        }
         
         const modal = new bootstrap.Modal(document.getElementById('permissionsModal'));
         modal.show();

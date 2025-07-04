@@ -18,9 +18,15 @@
     </div>
     <div>
         {% if folder %}
-            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#uploadImageModal">
-                <i class="fas fa-upload"></i> Upload Image
-            </button>
+            {% if 'create' in user_permissions %}
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#uploadImageModal">
+                    <i class="fas fa-upload"></i> Upload Image
+                </button>
+            {% else %}
+                <button class="btn btn-success" disabled>
+                    <i class="fas fa-upload"></i> Upload Image
+                </button>
+            {% endif %}
         {% endif %}
         <a href="{% url 'folders' %}" class="btn btn-outline-primary">
             <i class="fas fa-folder"></i> View Folders
@@ -65,23 +71,102 @@
                         <img src="{{ image.image_file.url }}" class="card-img-top" alt="{{ image.name }}" style="height: 200px; object-fit: cover;">
                         <div class="position-absolute top-0 end-0 p-2">
                             <div class="dropdown">
-                                <button class="btn btn-sm btn-light btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
                                     <i class="fas fa-ellipsis-v"></i>
                                 </button>
                                 <ul class="dropdown-menu">
-                                    <li><a class="dropdown-item" href="#" onclick="viewImage('{{ image.id }}')">
-                                        <i class="fas fa-eye"></i> View
-                                    </a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="downloadImage('{{ image.id }}')">
-                                        <i class="fas fa-download"></i> Download
-                                    </a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="editImage('{{ image.id }}')">
-                                        <i class="fas fa-edit"></i> Edit
-                                    </a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteImage('{{ image.id }}', '{{ image.name|escapejs }}')">
-                                        <i class="fas fa-trash"></i> Delete
-                                    </a></li>
+                                    {% comment %}
+                                    Check permissions - use image.user_permissions if available (for all images view)
+                                    Otherwise use user_permissions (for single folder view)
+                                    {% endcomment %}
+                                    {% if image.user_permissions %}
+                                        {% with image.user_permissions as perms %}
+                                            <!-- View/Preview -->
+                                            {% if 'view' in perms %}
+                                            <li><a class="dropdown-item" href="#" onclick="previewImage('{{ image.image_file.url }}', '{{ image.name }}')">
+                                                <i class="fas fa-eye"></i> Preview
+                                            </a></li>
+                                            {% endif %}
+                                            
+                                            <!-- Download -->
+                                            {% if 'download' in perms %}
+                                            <li><a class="dropdown-item" href="/api/v1/images/{{ image.id }}/download/" download>
+                                                <i class="fas fa-download"></i> Download
+                                            </a></li>
+                                            {% endif %}
+                                            
+                                            <!-- Edit -->
+                                            {% if 'update' in perms %}
+                                            <li><a class="dropdown-item" href="#" 
+                                                data-image-id="{{ image.id }}" 
+                                                data-image-name="{{ image.name|escapejs }}" 
+                                                data-image-description="{{ image.description|escapejs }}"
+                                                onclick="editImage(this.dataset.imageId, this.dataset.imageName, this.dataset.imageDescription)">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </a></li>
+                                            {% endif %}
+                                            
+                                            <!-- Separator -->
+                                            {% if 'view' in perms or 'download' in perms or 'update' in perms %}
+                                                {% if 'delete' in perms %}
+                                                <li><hr class="dropdown-divider"></li>
+                                                {% endif %}
+                                            {% endif %}
+                                            
+                                            <!-- Delete -->
+                                            {% if 'delete' in perms %}
+                                            <li><a class="dropdown-item text-danger" href="#" 
+                                                data-image-id="{{ image.id }}" 
+                                                data-image-name="{{ image.name|escapejs }}"
+                                                onclick="deleteImage(this.dataset.imageId, this.dataset.imageName)">
+                                                <i class="fas fa-trash"></i> Delete
+                                            </a></li>
+                                            {% endif %}
+                                        {% endwith %}
+                                    {% else %}
+                                        <!-- Use folder-level permissions -->
+                                        <!-- View/Preview -->
+                                        {% if 'view' in user_permissions %}
+                                        <li><a class="dropdown-item" href="#" onclick="previewImage('{{ image.image_file.url }}', '{{ image.name }}')">
+                                            <i class="fas fa-eye"></i> Preview
+                                        </a></li>
+                                        {% endif %}
+                                        
+                                        <!-- Download -->
+                                        {% if 'download' in user_permissions %}
+                                        <li><a class="dropdown-item" href="/api/v1/images/{{ image.id }}/download/" download>
+                                            <i class="fas fa-download"></i> Download
+                                        </a></li>
+                                        {% endif %}
+                                        
+                                        <!-- Edit -->
+                                        {% if 'update' in user_permissions %}
+                                        <li><a class="dropdown-item" href="#" 
+                                            data-image-id="{{ image.id }}" 
+                                            data-image-name="{{ image.name|escapejs }}" 
+                                            data-image-description="{{ image.description|escapejs }}"
+                                            onclick="editImage(this.dataset.imageId, this.dataset.imageName, this.dataset.imageDescription)">
+                                            <i class="fas fa-edit"></i> Edit
+                                        </a></li>
+                                        {% endif %}
+                                        
+                                        <!-- Separator -->
+                                        {% if 'view' in user_permissions or 'download' in user_permissions or 'update' in user_permissions %}
+                                            {% if 'delete' in user_permissions %}
+                                            <li><hr class="dropdown-divider"></li>
+                                            {% endif %}
+                                        {% endif %}
+                                        
+                                        <!-- Delete -->
+                                        {% if 'delete' in user_permissions %}
+                                        <li><a class="dropdown-item text-danger" href="#" 
+                                            data-image-id="{{ image.id }}" 
+                                            data-image-name="{{ image.name|escapejs }}"
+                                            onclick="deleteImage(this.dataset.imageId, this.dataset.imageName)">
+                                            <i class="fas fa-trash"></i> Delete
+                                        </a></li>
+                                        {% endif %}
+                                    {% endif %}
                                 </ul>
                             </div>
                         </div>
@@ -144,18 +229,51 @@
                             <td>{{ image.created_at|date:"M d, Y H:i" }}</td>
                             <td>
                                 <div class="btn-group" role="group">
-                                    <button class="btn btn-sm btn-outline-primary" onclick="viewImage('{{ image.id }}')" title="View">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-success" onclick="downloadImage('{{ image.id }}')" title="Download">
-                                        <i class="fas fa-download"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary" onclick="editImage('{{ image.id }}')" title="Edit">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteImage('{{ image.id }}', '{{ image.name|escapejs }}')" title="Delete">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
+                                    {% if image.user_permissions %}
+                                        {% with image.user_permissions as perms %}
+                                            {% if 'view' in perms %}
+                                            <button class="btn btn-sm btn-outline-primary" onclick="previewImage('{{ image.image_file.url }}', '{{ image.name }}')" title="Preview">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                            {% endif %}
+                                            {% if 'download' in perms %}
+                                            <a href="/api/v1/images/{{ image.id }}/download/" class="btn btn-sm btn-outline-success" title="Download" download>
+                                                <i class="fas fa-download"></i>
+                                            </a>
+                                            {% endif %}
+                                            {% if 'update' in perms %}
+                                            <button class="btn btn-sm btn-outline-secondary" onclick="editImage('{{ image.id }}', '{{ image.name|escapejs }}', '{{ image.description|escapejs }}')" title="Edit">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            {% endif %}
+                                            {% if 'delete' in perms %}
+                                            <button class="btn btn-sm btn-outline-danger" onclick="deleteImage('{{ image.id }}', '{{ image.name|escapejs }}')" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                            {% endif %}
+                                        {% endwith %}
+                                    {% else %}
+                                        {% if 'view' in user_permissions %}
+                                        <button class="btn btn-sm btn-outline-primary" onclick="previewImage('{{ image.image_file.url }}', '{{ image.name }}')" title="Preview">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        {% endif %}
+                                        {% if 'download' in user_permissions %}
+                                        <a href="/api/v1/images/{{ image.id }}/download/" class="btn btn-sm btn-outline-success" title="Download" download>
+                                            <i class="fas fa-download"></i>
+                                        </a>
+                                        {% endif %}
+                                        {% if 'update' in user_permissions %}
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="editImage('{{ image.id }}', '{{ image.name|escapejs }}', '{{ image.description|escapejs }}')" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        {% endif %}
+                                        {% if 'delete' in user_permissions %}
+                                        <button class="btn btn-sm btn-outline-danger" onclick="deleteImage('{{ image.id }}', '{{ image.name|escapejs }}')" title="Delete">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                        {% endif %}
+                                    {% endif %}
                                 </div>
                             </td>
                         </tr>
@@ -207,9 +325,15 @@
                 {% endif %}
             </p>
             {% if folder %}
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadImageModal">
-                    <i class="fas fa-upload"></i> Upload First Image
-                </button>
+                {% if 'create' in user_permissions %}
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadImageModal">
+                        <i class="fas fa-upload"></i> Upload First Image
+                    </button>
+                {% else %}
+                    <button class="btn btn-primary" disabled>
+                        <i class="fas fa-upload"></i> Upload First Image
+                    </button>
+                {% endif %}
             {% else %}
                 <a href="{% url 'folders' %}" class="btn btn-primary">
                     <i class="fas fa-folder-plus"></i> Create Folder
@@ -328,6 +452,14 @@
 <script>
 // View toggle functionality
 let isGridView = true;
+
+function previewImage(imageUrl, imageName) {
+    document.getElementById('viewImageTitle').textContent = imageName;
+    document.getElementById('viewImageContent').src = imageUrl;
+    
+    const viewModal = new bootstrap.Modal(document.getElementById('viewImageModal'));
+    viewModal.show();
+}
 
 function toggleView() {
     const gridView = document.getElementById('gridView');
