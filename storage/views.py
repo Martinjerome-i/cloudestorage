@@ -527,3 +527,4 @@ def delete_image_ajax(request, image_id):
         return JsonResponse({'error': 'Image not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+    
